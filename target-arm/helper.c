@@ -421,6 +421,9 @@ static const ARMCPRegInfo v7_cp_reginfo[] = {
      */
     { .name = "AIDR", .cp = 15, .crn = 0, .crm = 0, .opc1 = 1, .opc2 = 7,
       .access = PL1_R, .type = ARM_CP_CONST, .resetvalue = 0 },
+    { .name = "VBAR", .cp = 15, .crn = 12, .crm = 0, .opc1 = 0, .opc2 = 0,
+      .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c12_vbar),
+      .resetvalue = 0 },
     REGINFO_SENTINEL
 };
 
@@ -1885,6 +1888,8 @@ void do_interrupt(CPUARMState *env)
     /* High vectors.  */
     if (env->cp15.c1_sys & (1 << 13)) {
         addr += 0xffff0000;
+    } else {
+        addr += env->cp15.c12_vbar;
     }
     switch_mode (env, new_mode);
     env->spsr = cpsr_read(env);
