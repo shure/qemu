@@ -102,6 +102,7 @@ common-obj-$(CONFIG_POSIX) += compatfd.o
 common-obj-y += qemu-timer.o qemu-timer-common.o
 common-obj-y += qtest.o
 common-obj-y += vl.o
+common-obj-y += reginfo.o reginfo-impl.o
 
 common-obj-$(CONFIG_SLIRP) += slirp/
 

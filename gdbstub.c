@@ -40,6 +40,7 @@
 #include "cpu.h"
 #include "qemu/sockets.h"
 #include "sysemu/kvm.h"
+#include "reginfo.h"
 
 #ifndef TARGET_CPU_MEMORY_RW_DEBUG
 static inline int target_memory_rw_debug(CPUArchState *env, target_ulong addr,
@@ -1828,9 +1829,15 @@ static const char *get_feature_xml(const char *p, const char **newp)
                 pstrcat(target_xml, sizeof(target_xml), r->xml);
                 pstrcat(target_xml, sizeof(target_xml), "\"/>");
             }
+            if (get_platform_xml()) {
+                strcat(target_xml, "<xi:include href=\"platform.xml\"/>");
+            }
             pstrcat(target_xml, sizeof(target_xml), "</target>");
         }
         return target_xml;
+    }
+    if (strncmp(p, "platform.xml", len) == 0) {
+        return get_platform_xml();
     }
     for (i = 0; ; i++) {
         name = xml_builtin[i][0];
