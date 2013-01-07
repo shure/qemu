@@ -1839,6 +1839,90 @@ static const char *get_feature_xml(const char *p, const char **newp)
     }
     return name ? xml_builtin[i][1] : NULL;
 }
+
+typedef struct XferSpaceReq {
+    int is_write;
+    char annex[32];
+    uint64_t offset;
+    unsigned length;
+    char* data; /* Data buffer for write. */
+} XferSpaceReq;
+
+static int remote_unescape_input(const char* begin, const char* end, char* out)
+{
+    int escaped = 0;
+    const char *p, *out_begin = out;
+    for (p = begin; p != end; ++p) {
+        char b = *p;
+        if (escaped) {
+            *out++ = b ^ 0x20;
+            escaped = 0;
+	} else if (b == '}') {
+            escaped = 1;
+        } else {
+            *out++ = b;
+        }
+    }
+    if (escaped) {
+        fprintf(stderr, "Unmatched escape character in target response.\n");
+    }
+    return out - out_begin;
+}
+
+static int parse_xfer_spaces_req(const char* begin, const char* end, XferSpaceReq* req)
+{
+    const char *p;
+    char *out, *limit;
+
+    p = begin;
+
+    /* Read read/write word. */
+    if (strncmp(p, "read", 4) == 0) {
+        req->is_write = 0;
+        p += 4;
+    } else if (strncmp(p, "write", 5) == 0) {
+        req->is_write = 1;
+        p += 5;
+    } else {
+        return 0; /* Malformed. */
+    }
+
+    /* Consume the next colon. */
+    if (*p != ':') return 0; /* Malformed. */
+    p++;
+
+    /* Read the annex designator. */
+    out = req->annex;
+    limit = out + sizeof(req->annex);
+    while (*p != ':' && out != limit) {
+        *out++ = *p++;
+    }
+    if (out == limit) return 0; /* Too long. */
+    *out = (char)0;
+
+    /* Consume the next colon. */
+    if (*p != ':') return 0; /* Malformed. */
+    p++;
+
+    /* Read the offset */
+    req->offset = strtoul(p, (char **)&p, 16);
+
+    if (req->is_write) {
+        if (*p != ':') return 0; /* Should be colon. */
+        p++;
+        req->length = remote_unescape_input(p, end, req->data);
+    } else {
+        if (*p != ',') return 0; /* Should be comma. */
+        p++;
+        /* Read the length */
+        req->length = strtoul(p, (char **)&p, 16);
+        if (!req->length) return 0; /* Zero length request. */
+    }
+
+    return 1;
+}
+
+
 #endif
 
 static int gdb_read_register(CPUArchState *env, uint8_t *mem_buf, int reg)
@@ -2466,6 +2550,35 @@ static int gdb_handle_packet(GDBState *s, const char *line_buf)
                 len = memtox(buf + 1, xml + addr, total_len - addr);
             }
             put_packet_binary(s, buf, len + 1);
+            break;
+        } else if (strncmp(p, "Xfer:spaces:", 12) == 0) {
+            /* The following code is implemented according to:
+               http://sourceware.org/gdb/onlinedocs/gdb/General-Query-Packets.html */
+            XferSpaceReq req;
+            req.data = (char*)mem_buf;
+            if (!parse_xfer_spaces_req(p + 12, s->line_buf + s->line_buf_index, &req)) {
+                fprintf(stderr, "gdbstub: Malformed Xfer '%s'\n", p);
+                put_packet(s, "E00");
+                break;
+            }
+            if (strcmp(req.annex, "memory") != 0) {
+                /* Only annex "memory" is currently supported. */
+                put_packet(s, "E14");
+                break;
+            }
+            if (target_memory_rw_debug(s->g_cpu, req.offset, mem_buf, req.length,
+                                       req.is_write) != 0) {
+                put_packet(s, "E14");
+                break;
+            }
+            if (req.is_write) {
+                sprintf(buf, "%02X", req.length);
+                put_packet(s, buf);
+            } else {
+                buf[0] = 'm';
+                memtox(buf + 1, (const char*)mem_buf, req.length);
+                put_packet_binary(s, buf, req.length + 1);
+            }
             break;
         }
 #endif
