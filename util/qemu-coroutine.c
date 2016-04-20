@@ -100,7 +100,7 @@ static void coroutine_delete(Coroutine *co)
     qemu_coroutine_delete(co);
 }
 
-void qemu_coroutine_enter(Coroutine *co, void *opaque)
+CoroutineResult qemu_coroutine_enter(Coroutine *co, void *opaque)
 {
     Coroutine *self = qemu_coroutine_self();
     CoroutineAction ret;
@@ -120,11 +120,11 @@ void qemu_coroutine_enter(Coroutine *co, void *opaque)
 
     switch (ret) {
     case COROUTINE_YIELD:
-        return;
+        return COROUTINE_RESULT_YIELD;
     case COROUTINE_TERMINATE:
         trace_qemu_coroutine_terminate(co);
         coroutine_delete(co);
-        return;
+        return COROUTINE_RESULT_FINISH;
     default:
         abort();
     }
