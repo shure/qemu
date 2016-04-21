@@ -70,6 +70,13 @@ static void tilegx_cpu_set_pc(CPUState *cs, vaddr value)
     cpu->env.pc = value;
 }
 
+static vaddr tilegx_cpu_get_pc(CPUState *cs)
+{
+    TileGXCPU *cpu = TILEGX_CPU(cs);
+
+    return cpu->env.pc;
+}
+
 static bool tilegx_cpu_has_work(CPUState *cs)
 {
     return true;
@@ -159,6 +166,7 @@ static void tilegx_cpu_class_init(ObjectClass *oc, void *data)
     cc->cpu_exec_interrupt = tilegx_cpu_exec_interrupt;
     cc->dump_state = tilegx_cpu_dump_state;
     cc->set_pc = tilegx_cpu_set_pc;
+    cc->get_pc = tilegx_cpu_get_pc;
     cc->handle_mmu_fault = tilegx_cpu_handle_mmu_fault;
     cc->gdb_num_core_regs = 0;
 

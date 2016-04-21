@@ -91,6 +91,7 @@ struct TranslationBlock;
  * @get_paging_enabled: Callback for inquiring whether paging is enabled.
  * @get_memory_mapping: Callback for obtaining the memory mappings.
  * @set_pc: Callback for setting the Program Counter register.
+ * @get_pc: Callback for getting the Program Counter register.
  * @synchronize_from_tb: Callback for synchronizing state from a TCG
  * #TranslationBlock.
  * @handle_mmu_fault: Callback for handling an MMU fault.
@@ -155,6 +156,7 @@ typedef struct CPUClass {
     void (*get_memory_mapping)(CPUState *cpu, MemoryMappingList *list,
                                Error **errp);
     void (*set_pc)(CPUState *cpu, vaddr value);
+    vaddr (*get_pc)(CPUState *cpu);
     void (*synchronize_from_tb)(CPUState *cpu, struct TranslationBlock *tb);
     int (*handle_mmu_fault)(CPUState *cpu, vaddr address, int rw,
                             int mmu_index);
@@ -726,6 +728,20 @@ static inline void cpu_set_pc(CPUState *cpu, vaddr addr)
     CPUClass *cc = CPU_GET_CLASS(cpu);
 
     cc->set_pc(cpu, addr);
+}
+
+/**
+ * cpu_get_pc:
+ * @cpu: The CPU to set the program counter for.
+ * @return: Program counter value.
+ *
+ * Gets the program counter for a CPU.
+ */
+static inline vaddr cpu_get_pc(CPUState *cpu)
+{
+    CPUClass *cc = CPU_GET_CLASS(cpu);
+
+    return cc->get_pc(cpu);
 }
 
 /**

@@ -33,6 +33,13 @@ static void alpha_cpu_set_pc(CPUState *cs, vaddr value)
     cpu->env.pc = value;
 }
 
+static vaddr alpha_cpu_get_pc(CPUState *cs)
+{
+    AlphaCPU *cpu = ALPHA_CPU(cs);
+
+    return cpu->env.pc;
+}
+
 static bool alpha_cpu_has_work(CPUState *cs)
 {
     /* Here we are checking to see if the CPU should wake up from HALT.
@@ -295,6 +302,7 @@ static void alpha_cpu_class_init(ObjectClass *oc, void *data)
     cc->cpu_exec_interrupt = alpha_cpu_exec_interrupt;
     cc->dump_state = alpha_cpu_dump_state;
     cc->set_pc = alpha_cpu_set_pc;
+    cc->get_pc = alpha_cpu_get_pc;
     cc->gdb_read_register = alpha_cpu_gdb_read_register;
     cc->gdb_write_register = alpha_cpu_gdb_write_register;
 #ifdef CONFIG_USER_ONLY

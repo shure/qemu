@@ -292,6 +292,16 @@ static void aarch64_cpu_set_pc(CPUState *cs, vaddr value)
     }
 }
 
+static vaddr aarch64_cpu_get_pc(CPUState *cs)
+{
+    ARMCPU *cpu = ARM_CPU(cs);
+    if (is_a64(&cpu->env)) {
+        return cpu->env.pc;
+    } else {
+        return cpu->env.regs[15];
+    }
+}
+
 static gchar *aarch64_gdb_arch_name(CPUState *cs)
 {
     return g_strdup("aarch64");
@@ -303,6 +313,7 @@ static void aarch64_cpu_class_init(ObjectClass *oc, void *data)
 
     cc->cpu_exec_interrupt = arm_cpu_exec_interrupt;
     cc->set_pc = aarch64_cpu_set_pc;
+    cc->get_pc = aarch64_cpu_get_pc;
     cc->gdb_read_register = aarch64_cpu_gdb_read_register;
     cc->gdb_write_register = aarch64_cpu_gdb_write_register;
     cc->gdb_num_core_regs = 34;

@@ -25,6 +25,13 @@ static void uc32_cpu_set_pc(CPUState *cs, vaddr value)
     cpu->env.regs[31] = value;
 }
 
+static vaddr uc32_cpu_get_pc(CPUState *cs)
+{
+    UniCore32CPU *cpu = UNICORE32_CPU(cs);
+
+    return cpu->env.regs[31];
+}
+
 static bool uc32_cpu_has_work(CPUState *cs)
 {
     return cs->interrupt_request &
@@ -151,6 +158,7 @@ static void uc32_cpu_class_init(ObjectClass *oc, void *data)
     cc->cpu_exec_interrupt = uc32_cpu_exec_interrupt;
     cc->dump_state = uc32_cpu_dump_state;
     cc->set_pc = uc32_cpu_set_pc;
+    cc->get_pc = uc32_cpu_get_pc;
 #ifdef CONFIG_USER_ONLY
     cc->handle_mmu_fault = uc32_cpu_handle_mmu_fault;
 #else

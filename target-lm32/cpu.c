@@ -31,6 +31,13 @@ static void lm32_cpu_set_pc(CPUState *cs, vaddr value)
     cpu->env.pc = value;
 }
 
+static vaddr lm32_cpu_get_pc(CPUState *cs)
+{
+    LM32CPU *cpu = LM32_CPU(cs);
+
+    return cpu->env.pc;
+}
+
 /* Sort alphabetically by type name. */
 static gint lm32_cpu_list_compare(gconstpointer a, gconstpointer b)
 {
@@ -272,6 +279,7 @@ static void lm32_cpu_class_init(ObjectClass *oc, void *data)
     cc->cpu_exec_interrupt = lm32_cpu_exec_interrupt;
     cc->dump_state = lm32_cpu_dump_state;
     cc->set_pc = lm32_cpu_set_pc;
+    cc->get_pc = lm32_cpu_get_pc;
     cc->gdb_read_register = lm32_cpu_gdb_read_register;
     cc->gdb_write_register = lm32_cpu_gdb_write_register;
 #ifdef CONFIG_USER_ONLY
