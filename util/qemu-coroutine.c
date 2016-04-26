@@ -130,6 +130,38 @@ CoroutineResult qemu_coroutine_enter(Coroutine *co, void *opaque)
     }
 }
 
+/* TODO: Improve API and factor with qemu_coroutine_enter. */
+CoroutineResult qemu_coroutine_continue(Coroutine *co, CoroutineEntry *entry, void *opaque)
+{
+    Coroutine *self = qemu_coroutine_self();
+    CoroutineAction ret;
+
+    trace_qemu_coroutine_enter(self, co, opaque);
+
+    if (co->caller) {
+        fprintf(stderr, "Co-routine re-entered recursively\n");
+        abort();
+    }
+
+    co->caller = self;
+    co->entry = entry;
+    co->entry_arg = opaque;
+    ret = qemu_coroutine_switch(self, co, COROUTINE_ENTER);
+
+    qemu_co_queue_run_restart(co);
+
+    switch (ret) {
+    case COROUTINE_YIELD:
+        return COROUTINE_RESULT_YIELD;
+    case COROUTINE_TERMINATE:
+        trace_qemu_coroutine_terminate(co);
+        co->caller = NULL;
+        return COROUTINE_RESULT_FINISH;
+    default:
+        abort();
+    }
+}
+
 void coroutine_fn qemu_coroutine_yield(void)
 {
     Coroutine *self = qemu_coroutine_self();

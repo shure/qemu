@@ -80,6 +80,19 @@ typedef enum {
 CoroutineResult qemu_coroutine_enter(Coroutine *coroutine, void *opaque);
 
 /**
+ * Transfer control to a coroutine
+ *
+ * The opaque argument is passed as the argument to the entry point when
+ * entering the coroutine for the first time.  It is subsequently ignored.
+ *
+ * When finished, the coroutine is retained allowing subsequent executions
+ * using the same function.
+ *
+ * The return value allows to know the post execution state.
+ */
+CoroutineResult qemu_coroutine_continue(Coroutine *coroutine, CoroutineEntry *entry, void *opaque);
+
+/**
  * Transfer control back to a coroutine's caller
  *
  * This function does not return until the coroutine is re-entered using
