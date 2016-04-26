@@ -718,13 +718,22 @@ int tcg_check_temp_count(void)
 void tcg_gen_callN(TCGContext *s, void *func, TCGArg ret,
                    int nargs, TCGArg *args)
 {
-    int i, real_args, nb_rets, pi, pi_first;
     unsigned sizemask, flags;
     TCGHelperInfo *info;
 
     info = g_hash_table_lookup(s->helpers, (gpointer)func);
     flags = info->flags;
     sizemask = info->sizemask;
+
+    tcg_gen_helperN(s, func, flags, sizemask,
+                    ret, nargs, args);
+}
+
+void tcg_gen_helperN(TCGContext *s, void *func,
+                     int flags, int sizemask,
+                     TCGArg ret, int nargs, TCGArg *args)
+{
+    int i, real_args, nb_rets, pi, pi_first;
 
 #if defined(__sparc__) && !defined(__arch64__) \
     && !defined(CONFIG_TCG_INTERPRETER)

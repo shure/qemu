@@ -2009,3 +2009,17 @@ int page_unprotect(target_ulong address, uintptr_t pc, void *puc)
     return 0;
 }
 #endif /* CONFIG_USER_ONLY */
+
+void gen_simple_call(void (*func)(void*), void* opaque)
+{
+    enum { argc = 1 };
+    TCGArg argv[1];
+    int sizemask = 0;
+#if TCG_TARGET_REG_BITS == 64
+    sizemask |= (1 << 2);
+#endif
+    TCGv_ptr t0 = tcg_const_ptr(opaque);
+    argv[0] = GET_TCGV_PTR(t0);
+    tcg_gen_helperN(&tcg_ctx, func, 0, sizemask, TCG_CALL_DUMMY_ARG, argc, argv);
+    tcg_temp_free_ptr(t0);
+}

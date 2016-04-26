@@ -30,4 +30,6 @@ void tb_check_watchpoint(CPUState *cpu);
 int page_unprotect(target_ulong address, uintptr_t pc, void *puc);
 #endif
 
+void gen_simple_call(void (*func)(void*), void* opaque);
+
 #endif /* TRANSLATE_ALL_H */
