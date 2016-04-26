@@ -7952,6 +7952,42 @@ bool arm_tlb_fill(CPUState *cs, vaddr address,
     return ret;
 }
 
+static inline ARMMMUIdx get_escalated_mmu_index(CPUARMState *env, ARMMMUIdx mmu_idx)
+{
+    switch (mmu_idx) {
+    case ARMMMUIdx_S1SE0:
+        return !arm_el_is_aa64(env, 3) ? ARMMMUIdx_S1E3 : ARMMMUIdx_S1SE1;
+    case ARMMMUIdx_S12NSE0:
+        return ARMMMUIdx_S12NSE1;
+    default:
+        return mmu_idx;
+    }
+}
+
+hwaddr arm_cpu_get_phys_page_debug_escalated(CPUState *cs, vaddr addr)
+{
+    ARMCPU *cpu = ARM_CPU(cs);
+    CPUARMState *env = &cpu->env;
+    hwaddr phys_addr;
+    target_ulong page_size;
+    int prot;
+    bool ret;
+    uint32_t fsr;
+    MemTxAttrs attrs = {};
+    ARMMMUFaultInfo fi = {};
+
+    ARMMMUIdx mmu_index = cpu_mmu_index(env, false);
+    mmu_index = get_escalated_mmu_index(env, mmu_index);
+    ret = get_phys_addr(env, addr, 0, mmu_index, &phys_addr,
+                        &attrs, &prot, &page_size, &fsr, &fi);
+
+    if (ret) {
+        return -1;
+    }
+
+    return phys_addr;
+}
+
 hwaddr arm_cpu_get_phys_page_attrs_debug(CPUState *cs, vaddr addr,
                                          MemTxAttrs *attrs)
 {
@@ -9378,4 +9414,131 @@ uint32_t HELPER(crc32c)(uint32_t acc, uint32_t val, uint32_t bytes)
 
     /* Linux crc32c converts the output to one's complement.  */
     return crc32c(acc, buf, bytes) ^ 0xffffffff;
+}
+
+static uint64_t arm_cp_reginfo_read(const ARMCPRegInfo *reg)
+{
+    uint64_t value = 0;
+    if (reg->readfn)
+        value = reg->readfn(reg->opaque, reg);
+    else if (reg->type == ARM_CP_CONST)
+        value = reg->resetvalue;
+    else
+        value = CPREG_FIELD32(reg->opaque, reg);
+    return value;
+}
+
+static void arm_cp_reginfo_write(const ARMCPRegInfo *reg, uint64_t value)
+{
+    if (reg->writefn) {
+        reg->writefn(reg->opaque, reg, value);
+    } else if (reg->type != ARM_CP_CONST) {
+        CPREG_FIELD32(reg->opaque, reg) = value;
+    }
+}
+
+uint32_t arm32_get_sys_reg(CPUARMState* env, enum arm_cpu_mode mode, int reg)
+{
+    /* reg: 0..15 are gps, 16 is psr */
+    if (reg < 0 || reg > 16) {
+        qemu_log_mask(LOG_GUEST_ERROR, "read_system_reg: Invalid register spec.");
+    }
+
+    if (bank_number(mode) == bank_number(arm32_current_mode(env))) {
+        if (reg <= 15) {
+            return env->regs[reg];
+        } else if (reg == 16) {
+            return cpsr_read(env);
+        }
+    } else {
+        switch (reg) {
+        case 0 ... 7:
+        case 15:
+            return env->regs[reg];
+        case 8 ... 12:
+            if (mode == ARM_CPU_MODE_FIQ)
+                return env->fiq_regs[reg - 8];
+            else
+                return env->usr_regs[reg - 8];
+        case 13:
+            return env->banked_r13[bank_number(mode)];
+        case 14:
+            return env->banked_r14[bank_number(mode)];
+        case 16:
+            return env->banked_spsr[bank_number(mode)];
+        }
+    }
+
+    return 0; /* no way */
+}
+
+void arm32_set_sys_reg(CPUARMState* env, enum arm_cpu_mode mode, int reg, uint32_t value)
+{
+    /* reg: 0..15 are gps, 16 is psr */
+    if (reg < 0 || reg > 16) {
+        qemu_log_mask(LOG_GUEST_ERROR, "read_system_reg: Invalid register spec.");
+    }
+
+    if (bank_number(mode) == bank_number(arm32_current_mode(env))) {
+        if (reg <= 15) {
+            env->regs[reg] = value;
+        } else if (reg == 16) {
+            cpsr_write(env, value, 0xffffffff, CPSRWriteRaw);
+        }
+    } else {
+        switch (reg) {
+        case 0 ... 7:
+        case 15:
+            env->regs[reg] = value;
+            break;
+        case 8 ... 12:
+            if (mode == ARM_CPU_MODE_FIQ)
+                env->fiq_regs[reg - 8] = value;
+            else
+                env->usr_regs[reg - 8] = value;
+            break;
+        case 13:
+            env->banked_r13[bank_number(mode)] = value;
+            break;
+        case 14:
+            env->banked_r14[bank_number(mode)] = value;
+            break;
+        case 16:
+            env->banked_spsr[bank_number(mode)] = value;
+            break;
+        }
+    }
+}
+
+uint32_t arm32_get_cp15_reg(CPUARMState* env, int crn, int opc1, int crm, int opc2)
+{
+    int cpnum = 15;
+    int is64 = 0;
+    int ns = 0;
+    const ARMCPRegInfo *ri;
+
+    ri = get_arm_cp_reginfo(ARM_CPU(env)->cp_regs, ENCODE_CP_REG(cpnum, is64, ns, crn, crm, opc1, opc2));
+    if (ri) {
+        return arm_cp_reginfo_read(ri);
+    } else {
+        qemu_log_mask(LOG_GUEST_ERROR, "Invalid cp15: crn=%d opc1=%d crm=%d opc2=%d\n",
+                      crn, opc1, crm, opc2);
+        return 0;
+    }
+}
+
+void arm32_set_cp15_reg(CPUARMState* env, int opc1, int crn, int crm, int opc2, uint32_t value)
+{
+    int cpnum = 15;
+    int is64 = 0;
+    int ns = 0;
+    const ARMCPRegInfo *ri;
+
+    ri = get_arm_cp_reginfo(ARM_CPU(env)->cp_regs, ENCODE_CP_REG(cpnum, is64, ns, crn, crm, opc1, opc2));
+    if (ri) {
+        arm_cp_reginfo_write(ri, value);
+    } else {
+        qemu_log_mask(LOG_GUEST_ERROR, "Invalid cp15: crn=%d opc1=%d crm=%d opc2=%d\n",
+                      crn, opc1, crm, opc2);
+    }
 }

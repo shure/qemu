@@ -2168,6 +2168,35 @@ static inline void cpu_get_tb_cpu_state(CPUARMState *env, target_ulong *pc,
     *cs_base = 0;
 }
 
+static inline long vfp_reg_offset (int dp, int reg)
+{
+    if (dp)
+        return offsetof(CPUARMState, vfp.regs[reg]);
+    else if (reg & 1) {
+        return offsetof(CPUARMState, vfp.regs[reg >> 1])
+          + offsetof(CPU_DoubleU, l.upper);
+    } else {
+        return offsetof(CPUARMState, vfp.regs[reg >> 1])
+          + offsetof(CPU_DoubleU, l.lower);
+    }
+}
+
+/* Read/Write banked or current version of GPRs. Use reg=16 for PSR access. */
+uint32_t arm32_get_sys_reg(CPUARMState* env, enum arm_cpu_mode mode, int reg);
+void arm32_set_sys_reg(CPUARMState* env, enum arm_cpu_mode mode, int reg, uint32_t value);
+
+/* Read/Write CP15 registers. */
+uint32_t arm32_get_cp15_reg(CPUARMState* env, int crn, int opc1, int crm, int opc2);
+void arm32_set_cp15_reg(CPUARMState* env, int opc1, int crn, int crm, int opc2, uint32_t value);
+
+static inline enum arm_cpu_mode arm32_current_mode(CPUARMState *s)
+{
+  return s->uncached_cpsr & CPSR_M;
+}
+
+#define HAS_CPU_GEN_SET_PC_IM
+void cpu_gen_set_pc_im(CPUARMState *env, target_ulong pc);
+
 #include "exec/exec-all.h"
 
 enum {

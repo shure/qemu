@@ -1372,20 +1372,6 @@ static inline void gen_vfp_st(DisasContext *s, int dp, TCGv_i32 addr)
     }
 }
 
-static inline long
-vfp_reg_offset (int dp, int reg)
-{
-    if (dp)
-        return offsetof(CPUARMState, vfp.regs[reg]);
-    else if (reg & 1) {
-        return offsetof(CPUARMState, vfp.regs[reg >> 1])
-          + offsetof(CPU_DoubleU, l.upper);
-    } else {
-        return offsetof(CPUARMState, vfp.regs[reg >> 1])
-          + offsetof(CPU_DoubleU, l.lower);
-    }
-}
-
 /* Return the offset of a 32-bit piece of a NEON register.
    zero is the least significant end of the register.  */
 static inline long
@@ -12045,4 +12031,12 @@ void restore_state_to_opc(CPUARMState *env, TranslationBlock *tb,
         env->regs[15] = data[0];
         env->condexec_bits = data[1];
     }
+}
+
+void cpu_gen_set_pc_im(CPUARMState *env, target_ulong pc)
+{
+    if (is_a64(env))
+        gen_a64_set_pc_im(pc);
+    else
+        tcg_gen_movi_i32(cpu_R[15], pc);
 }
