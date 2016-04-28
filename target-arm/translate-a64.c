@@ -35,6 +35,9 @@
 
 #include "trace-tcg.h"
 
+#include "non-intrusive/loader.h"
+#include "translate-all.h"
+
 static TCGv_i64 cpu_X[32];
 static TCGv_i64 cpu_pc;
 
@@ -11016,6 +11019,28 @@ static void disas_a64_insn(CPUARMState *env, DisasContext *s)
     free_tmp_a64(s);
 }
 
+static void gen_tracepoints_a64(CPUState *cs, target_ulong pc,
+                                DisasContext* dc)
+{
+    TraceCallback hook = cpu_get_tracepoints_code(cs, pc);
+    if (!hook.callback)
+        return;
+
+    gen_a64_set_pc_im(pc);
+    gen_simple_call(hook.callback, hook.opaque);
+
+    if (hook.flags & TP_VOLATILE) {
+        /* Generate unlikely if cpu_pc != pc. */
+        TCGLabel *do_exit_lab = gen_new_label(), *end_lab = gen_new_label();
+        tcg_gen_brcondi_i64(TCG_COND_NE, cpu_pc, pc, do_exit_lab);
+        tcg_gen_br(end_lab);
+        gen_set_label(do_exit_lab);
+        tcg_gen_andi_i64(cpu_pc, cpu_pc, ~1);
+        gen_simple_call((void*)&cpu_loop_exit, cs);
+        gen_set_label(end_lab);
+    }
+}
+
 void gen_intermediate_code_a64(ARMCPU *cpu, TranslationBlock *tb)
 {
     CPUState *cs = CPU(cpu);
@@ -11093,9 +11118,41 @@ void gen_intermediate_code_a64(ARMCPU *cpu, TranslationBlock *tb)
 
     tcg_clear_temp_count();
 
+   Symbol* tb_symbols = 0;
+    if (tb->has_symbols) {
+      tb_symbols = (Symbol*)alloca(cs->symbol_trace_count * sizeof(Symbol));
+
+      int i;
+      for (i = 0; i < cs->symbol_trace_count; i++) {
+        tb_symbols[i] = cs->symbol_trace[i]->lookup_symbol(cs->symbol_trace[i], tb->pc);
+      }
+    }
+
     do {
         tcg_gen_insn_start(dc->pc, 0);
         num_insns++;
+
+        if (dc->pc == YIELD_MAGIC_PC) {
+            gen_exception_internal(EXCP_YIELD);
+            dc->is_jmp = DISAS_UPDATE;
+            break;
+        }
+
+        /* When symbol_trace is requested, break the block when the symbol
+           is changed in the middle (in case of inlined functions). */
+        if (unlikely(tb_symbols && dc->pc != tb->pc)) {
+            int i, symbol_changed = 0;
+            for (i = 0; i < cs->symbol_trace_count; i++) {
+                if (tb_symbols[i] !=
+                    cs->symbol_trace[i]->lookup_symbol(cs->symbol_trace[i], dc->pc)) {
+                    symbol_changed = 1;
+                    break;
+                }
+            }
+            if (symbol_changed) {
+                break;
+            }
+        }
 
         if (unlikely(!QTAILQ_EMPTY(&cs->breakpoints))) {
             CPUBreakpoint *bp;
@@ -11120,6 +11177,9 @@ void gen_intermediate_code_a64(ARMCPU *cpu, TranslationBlock *tb)
                 }
             }
         }
+
+        /* Generate tracepoints if any. */
+        gen_tracepoints_a64(cs, dc->pc, dc);
 
         if (num_insns == max_insns && (tb->cflags & CF_LAST_IO)) {
             gen_io_start();

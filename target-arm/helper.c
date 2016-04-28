@@ -13,6 +13,7 @@
 #include <zlib.h> /* For crc32 */
 #include "exec/semihost.h"
 #include "sysemu/kvm.h"
+#include "non-intrusive/loader.h"
 
 #define ARM_CPU_FREQ 1000000000 /* FIXME: 1 GHz, should be configurable */
 
@@ -5525,6 +5526,8 @@ void cpsr_write(CPUARMState *env, uint32_t val, uint32_t mask,
     }
     mask &= ~CACHED_CPSR_BITS;
     env->uncached_cpsr = (env->uncached_cpsr & ~mask) | (val & mask);
+
+    cpu_notify_mode_change(CPU(arm_env_get_cpu(env)));
 }
 
 /* Sign/zero extend */
@@ -5771,6 +5774,7 @@ static void switch_v7m_sp(CPUARMState *env, int process)
         env->v7m.other_sp = env->regs[13];
         env->regs[13] = tmp;
         env->v7m.current_sp = process;
+        cpu_notify_mode_change(CPU(arm_env_get_cpu(env)));
     }
 }
 
@@ -6259,6 +6263,7 @@ static void arm_cpu_do_interrupt_aarch32(CPUState *cs)
     }
     env->regs[14] = env->regs[15] + offset;
     env->regs[15] = addr;
+    cpu_notify_mode_change(cs);
 }
 
 /* Handle exception entry to a target EL which is using AArch64 */
@@ -6358,6 +6363,7 @@ static void arm_cpu_do_interrupt_aarch64(CPUState *cs)
 
     qemu_log_mask(CPU_LOG_INT, "...to EL%d PC 0x%" PRIx64 " PSTATE 0x%x\n",
                   new_el, env->pc, pstate_read(env));
+    cpu_notify_mode_change(cs);
 }
 
 static inline bool check_for_semihosting(CPUState *cs)
@@ -7944,6 +7950,17 @@ bool arm_tlb_fill(CPUState *cs, vaddr address,
         /* Map a single [sub]page.  */
         phys_addr &= TARGET_PAGE_MASK;
         address &= TARGET_PAGE_MASK;
+        tlb_set_page_with_attrs(cs, address, phys_addr, attrs,
+                                prot, mmu_idx, page_size);
+        return 0;
+    }
+
+    if (cpu_has_watchpoints_overriding_mmu(cs, address & TARGET_PAGE_MASK,
+                                           TARGET_PAGE_SIZE)) {
+        phys_addr = address;
+        phys_addr &= TARGET_PAGE_MASK;
+        address &= TARGET_PAGE_MASK;
+        prot = PAGE_READ | PAGE_WRITE;
         tlb_set_page_with_attrs(cs, address, phys_addr, attrs,
                                 prot, mmu_idx, page_size);
         return 0;

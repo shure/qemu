@@ -21,6 +21,7 @@
 #include "exec/helper-proto.h"
 #include "internals.h"
 #include "exec/cpu_ldst.h"
+#include "non-intrusive/loader.h"
 
 #define SIGNBIT (uint32_t)0x80000000
 #define SIGNBIT64 ((uint64_t)1 << 63)
@@ -929,6 +930,7 @@ void HELPER(exception_return)(CPUARMState *env)
         env->pc = env->elr_el[cur_el];
     }
 
+    cpu_notify_mode_change(CPU(arm_env_get_cpu(env)));
     return;
 
 illegal_return:

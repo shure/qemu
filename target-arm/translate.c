@@ -34,6 +34,9 @@
 #include "trace-tcg.h"
 #include "exec/log.h"
 
+#include "non-intrusive/loader.h"
+#include "translate-all.h"
+
 
 #define ENABLE_ARCH_4T    arm_dc_feature(s, ARM_FEATURE_V4T)
 #define ENABLE_ARCH_5     arm_dc_feature(s, ARM_FEATURE_V5)
@@ -11572,6 +11575,60 @@ static bool insn_crosses_page(CPUARMState *env, DisasContext *s)
     return false;
 }
 
+static void gen_tracepoints(CPUState *cs, TranslationBlock *tb,
+                            DisasContext* dc)
+{
+    target_ulong pc = dc->pc;
+    TraceCallback hook = cpu_get_tracepoints_code(cs, pc);
+    if (!hook.callback)
+        return;
+
+    CPUARMState *env = cs->env_ptr;
+    int condexec_mask = 0;
+    int condexec_cond = 0;
+    if (env->thumb) {
+        condexec_mask = (ARM_TBFLAG_CONDEXEC(tb->flags) & 0xf) << 1;
+        condexec_cond = ARM_TBFLAG_CONDEXEC(tb->flags) >> 4;
+    } else {
+        unsigned int cond, insn;
+        insn = arm_ldl_code(env, pc, dc->sctlr_b);
+        cond = insn >> 28;
+        if (cond != 0xf && cond != 0xe) {
+            condexec_mask = 1;
+            condexec_cond = cond;
+        }
+    }
+
+    TCGLabel *condlabel = 0;
+    if (condexec_mask) {
+        uint32_t cond = condexec_cond;
+        if (cond != 0x0e) {
+            condlabel = gen_new_label();
+            arm_gen_test_cc(cond ^ 1, condlabel);
+        }
+    }
+
+    gen_set_pc_im(dc, pc);
+    gen_simple_call(hook.callback, hook.opaque);
+
+    if (hook.flags & TP_VOLATILE) {
+        /* Generate unlikely if PC != pc. */
+        TCGLabel *do_exit_lab = gen_new_label(), *end_lab = gen_new_label();
+        tcg_gen_brcondi_i32(TCG_COND_NE, cpu_R[15], pc, do_exit_lab);
+        tcg_gen_br(end_lab);
+        gen_set_label(do_exit_lab);
+        if (dc) {
+            gen_set_condexec(dc);
+        }
+        gen_simple_call((void*)&cpu_loop_exit, cs);
+        gen_set_label(end_lab);
+    }
+
+    if (condlabel) {
+        gen_set_label(condlabel);
+    }
+}
+
 /* generate intermediate code for basic block 'tb'.  */
 void gen_intermediate_code(CPUARMState *env, TranslationBlock *tb)
 {
@@ -11708,10 +11765,42 @@ void gen_intermediate_code(CPUARMState *env, TranslationBlock *tb)
         tcg_gen_movi_i32(tmp, 0);
         store_cpu_field(tmp, condexec_bits);
       }
+
+    Symbol* tb_symbols = 0;
+    if (tb->has_symbols) {
+        tb_symbols = (Symbol*)alloca(cs->symbol_trace_count * sizeof(Symbol));
+        int i;
+        for (i = 0; i < cs->symbol_trace_count; i++) {
+            tb_symbols[i] = cs->symbol_trace[i]->lookup_symbol(cs->symbol_trace[i], tb->pc);
+        }
+    }
+
     do {
         tcg_gen_insn_start(dc->pc,
                            (dc->condexec_cond << 4) | (dc->condexec_mask >> 1));
         num_insns++;
+
+        if (dc->pc == YIELD_MAGIC_PC) {
+            gen_exception_internal(EXCP_YIELD);
+            dc->is_jmp = DISAS_UPDATE;
+            break;
+        }
+
+        /* When symbol_trace is requested, break the block when the symbol
+           is changed in the middle (in case of inlined functions). */
+        if (unlikely(tb_symbols && dc->pc != tb->pc)) {
+            int i, symbol_changed = 0;
+            for (i = 0; i < cs->symbol_trace_count; i++) {
+                if (tb_symbols[i] !=
+                    cs->symbol_trace[i]->lookup_symbol(cs->symbol_trace[i], dc->pc)) {
+                    symbol_changed = 1;
+                    break;
+                }
+            }
+            if (symbol_changed) {
+                break;
+            }
+        }
 
 #ifdef CONFIG_USER_ONLY
         /* Intercept jump to the magic kernel page.  */
@@ -11758,6 +11847,8 @@ void gen_intermediate_code(CPUARMState *env, TranslationBlock *tb)
                 }
             }
         }
+
+        gen_tracepoints(cs, tb, dc);
 
         if (num_insns == max_insns && (tb->cflags & CF_LAST_IO)) {
             gen_io_start();
