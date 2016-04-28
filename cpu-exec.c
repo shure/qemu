@@ -32,6 +32,7 @@
 #include "hw/i386/apic.h"
 #endif
 #include "sysemu/replay.h"
+#include "non-intrusive/loader.h"
 
 /* -icount align implementation. */
 
@@ -396,6 +397,11 @@ int cpu_exec(CPUState *cpu)
         if (sigsetjmp(cpu->jmp_env, 0) == 0) {
             /* if an exception is pending, we execute it here */
             if (cpu->exception_index >= 0) {
+                if (cpu_get_pc(cpu) == YIELD_MAGIC_PC) {
+                    cpu_run_tracepoints(cpu);
+                    cpu_finish_yield(cpu);
+                    cpu->exception_index = EXCP_YIELD;
+                }
                 if (cpu->exception_index >= EXCP_INTERRUPT) {
                     /* exit request from the cpu execution loop */
                     ret = cpu->exception_index;
