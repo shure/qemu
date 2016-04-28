@@ -47,7 +47,8 @@ static inline bool excp_is_internal(int excp)
         || excp == EXCP_EXCEPTION_EXIT
         || excp == EXCP_KERNEL_TRAP
         || excp == EXCP_SEMIHOST
-        || excp == EXCP_STREX;
+        || excp == EXCP_STREX
+        || excp == EXCP_YIELD;
 }
 
 /* Exception names for debug logging; note that not all of these
