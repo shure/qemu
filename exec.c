@@ -60,6 +60,8 @@
 #include "qemu/mmap-alloc.h"
 #endif
 
+#include "non-intrusive/loader.h"
+
 //#define DEBUG_SUBPAGE
 
 #if !defined(CONFIG_USER_ONLY)
@@ -2078,8 +2080,20 @@ static const MemoryRegionOps notdirty_mem_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
+bool cpu_has_watchpoints_overriding_mmu(CPUState *cs, vaddr address, int size)
+{
+  CPUWatchpoint *wp;
+  QTAILQ_FOREACH(wp, &cs->watchpoints, entry) {
+    if ((wp->pre_callback.flags & WP_OVERRIDE_MMU) &&
+        cpu_watchpoint_address_matches(wp, address, size)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /* Generate a debug exception if a watchpoint has been hit.  */
-static void check_watchpoint(int offset, int len, MemTxAttrs attrs, int flags)
+static bool check_watchpoint(int offset, int len, MemTxAttrs attrs, int flags)
 {
     CPUState *cpu = current_cpu;
     CPUClass *cc = CPU_GET_CLASS(cpu);
@@ -2088,18 +2102,32 @@ static void check_watchpoint(int offset, int len, MemTxAttrs attrs, int flags)
     target_ulong vaddr;
     CPUWatchpoint *wp;
     int cpu_flags;
+    int nit_hit = false;
 
     if (cpu->watchpoint_hit) {
         /* We re-entered the check after replacing the TB. Now raise
          * the debug interrupt so that is will trigger after the
          * current instruction. */
         cpu_interrupt(cpu, CPU_INTERRUPT_DEBUG);
-        return;
+        return false;
     }
     vaddr = (cpu->mem_io_vaddr & TARGET_PAGE_MASK) + offset;
     QTAILQ_FOREACH(wp, &cpu->watchpoints, entry) {
         if (cpu_watchpoint_address_matches(wp, vaddr, len)
             && (wp->flags & flags)) {
+
+            /* Check non intrusive watchpoints. */
+            if (!(wp->flags & (BP_GDB|BP_CPU))) {
+                if (wp->pre_callback.callback &&
+                    (!wp->condition.condition || wp->condition.condition(wp->condition.opaque))) {
+                    cpu->IO_ADDR = vaddr;
+                    cpu->IO_SIZE = len;
+                    wp->pre_callback.callback(wp->pre_callback.opaque);
+                }
+                nit_hit = true;
+                continue;
+            }
+
             if (flags == BP_MEM_READ) {
                 wp->flags |= BP_WATCHPOINT_HIT_READ;
             } else {
@@ -2128,6 +2156,32 @@ static void check_watchpoint(int offset, int len, MemTxAttrs attrs, int flags)
             wp->flags &= ~BP_WATCHPOINT_HIT;
         }
     }
+
+    return nit_hit;
+}
+
+/* Generate a debug exception if a watchpoint has been hit.  */
+static void post_watchpoint(int offset, int len, MemTxAttrs attrs, int flags)
+{
+    CPUState *cpu = current_cpu;
+    target_ulong vaddr;
+    CPUWatchpoint *wp;
+
+    vaddr = (cpu->mem_io_vaddr & TARGET_PAGE_MASK) + offset;
+    QTAILQ_FOREACH(wp, &cpu->watchpoints, entry) {
+        if (cpu_watchpoint_address_matches(wp, vaddr, len)
+            && (wp->flags & flags)) {
+            if (!(wp->flags & (BP_GDB|BP_CPU))) {
+                /* Not gdb/cpu: call callback only */
+                if (wp->post_callback.callback &&
+                    (!wp->condition.condition || wp->condition.condition(wp->condition.opaque))) {
+                    cpu->IO_ADDR = vaddr;
+                    cpu->IO_SIZE = len;
+                    wp->post_callback.callback(wp->post_callback.opaque);
+                }
+            }
+        }
+    }
 }
 
 /* Watchpoint access routines.  Watchpoints are inserted using TLB tricks,
@@ -2137,23 +2191,40 @@ static MemTxResult watch_mem_read(void *opaque, hwaddr addr, uint64_t *pdata,
                                   unsigned size, MemTxAttrs attrs)
 {
     MemTxResult res;
-    uint64_t data;
+    uint64_t data = 0;
     int asidx = cpu_asidx_from_attrs(current_cpu, attrs);
     AddressSpace *as = current_cpu->cpu_ases[asidx].as;
+    CPUState *cpu = current_cpu;
+    cpu->IO_ABORT = 0;
 
-    check_watchpoint(addr & ~TARGET_PAGE_MASK, size, attrs, BP_MEM_READ);
-    switch (size) {
-    case 1:
-        data = address_space_ldub(as, addr, attrs, &res);
-        break;
-    case 2:
-        data = address_space_lduw(as, addr, attrs, &res);
-        break;
-    case 4:
-        data = address_space_ldl(as, addr, attrs, &res);
-        break;
-    default: abort();
+    bool nit_hit = check_watchpoint(addr & ~TARGET_PAGE_MASK, size, attrs, BP_MEM_READ);
+    if (!nit_hit || !cpu->IO_ABORT) {
+        switch (size) {
+        case 1:
+            data = address_space_ldub(as, addr, attrs, &res);
+            break;
+        case 2:
+            data = address_space_lduw(as, addr, attrs, &res);
+            break;
+        case 4:
+            data = address_space_ldl(as, addr, attrs, &res);
+            break;
+        case 8:
+            data = address_space_ldq(as, addr, attrs, &res);
+            break;
+        default: abort();
+        }
     }
+
+    if (nit_hit) {
+        if (!cpu->IO_ABORT) {
+            cpu->IO_VALUE = data;
+            post_watchpoint(addr & ~TARGET_PAGE_MASK, size, attrs, BP_MEM_READ);
+        }
+        /* If it was an abort, IO_VALUE should be preset by pre-callback. */
+        data = cpu->IO_VALUE;
+    }
+
     *pdata = data;
     return res;
 }
@@ -2165,20 +2236,34 @@ static MemTxResult watch_mem_write(void *opaque, hwaddr addr,
     MemTxResult res;
     int asidx = cpu_asidx_from_attrs(current_cpu, attrs);
     AddressSpace *as = current_cpu->cpu_ases[asidx].as;
+    CPUState *cpu = current_cpu;
+    cpu->IO_VALUE = val;
+    cpu->IO_ABORT = 0;
 
-    check_watchpoint(addr & ~TARGET_PAGE_MASK, size, attrs, BP_MEM_WRITE);
-    switch (size) {
-    case 1:
-        address_space_stb(as, addr, val, attrs, &res);
-        break;
-    case 2:
-        address_space_stw(as, addr, val, attrs, &res);
-        break;
-    case 4:
-        address_space_stl(as, addr, val, attrs, &res);
-        break;
-    default: abort();
+    bool nit_hit = check_watchpoint(addr & ~TARGET_PAGE_MASK, size, attrs, BP_MEM_WRITE);
+    val = cpu->IO_VALUE;
+    if (!nit_hit || !cpu->IO_ABORT) {
+        switch (size) {
+        case 1:
+            address_space_stb(as, addr, val, attrs, &res);
+            break;
+        case 2:
+            address_space_stw(as, addr, val, attrs, &res);
+            break;
+        case 4:
+            address_space_stl(as, addr, val, attrs, &res);
+            break;
+        case 8:
+            address_space_stq(as, addr, val, attrs, &res);
+            break;
+        default: abort();
+        }
     }
+
+    if (nit_hit && !cpu->IO_ABORT) {
+        post_watchpoint(addr & ~TARGET_PAGE_MASK, size, attrs, BP_MEM_WRITE);
+    }
+    
     return res;
 }
 
