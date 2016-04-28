@@ -4521,6 +4521,10 @@ if test "$libnfs" != "no" ; then
   fi
 fi
 
+##########################################
+# libdl
+LIBS="$LIBS -ldl"
+
 # Disable zero malloc errors for official releases unless explicitly told to
 # enable/disable
 if test -z "$zero_malloc" ; then

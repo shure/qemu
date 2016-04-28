@@ -331,6 +331,7 @@ static void cpu_common_initfn(Object *obj)
     qemu_mutex_init(&cpu->work_mutex);
     QTAILQ_INIT(&cpu->breakpoints);
     QTAILQ_INIT(&cpu->watchpoints);
+    QTAILQ_INIT(&cpu->mode_callbacks);
 }
 
 static void cpu_common_finalize(Object *obj)

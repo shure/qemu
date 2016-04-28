@@ -105,6 +105,11 @@ util-obj-y +=  trace/
 target-obj-y += trace/
 
 ######################################################################
+# NIT loader
+util-obj-y += non-intrusive/
+target-obj-y += non-intrusive/
+
+######################################################################
 # guest agent
 
 # FIXME: a few definitions from qapi-types.o/qapi-visit.o are needed

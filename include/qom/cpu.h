@@ -26,6 +26,7 @@
 #include "exec/memattrs.h"
 #include "qemu/queue.h"
 #include "qemu/thread.h"
+#include "non-intrusive/trace-api.h"
 
 typedef int (*WriteCoreDumpFunction)(const void *buf, size_t size,
                                      void *opaque);
@@ -61,6 +62,8 @@ typedef uint64_t vaddr;
 #define CPU_GET_CLASS(obj) OBJECT_GET_CLASS(CPUClass, (obj), TYPE_CPU)
 
 typedef struct CPUWatchpoint CPUWatchpoint;
+typedef struct CPUTracepoint CPUTracepoint;
+typedef struct CPUEventCallback CPUEventCallback;
 
 typedef void (*CPUUnassignedAccess)(CPUState *cpu, hwaddr addr,
                                     bool is_write, bool is_exec, int opaque,
@@ -216,6 +219,25 @@ struct CPUWatchpoint {
     MemTxAttrs hitattrs;
     int flags; /* BP_* */
     QTAILQ_ENTRY(CPUWatchpoint) entry;
+    /* Non intrusive watchpoint part. */
+    TraceCallback pre_callback, post_callback;
+    TraceCondition condition;
+    struct CPUWatchpoint* smp_next;
+};
+
+struct CPUTracepoint {
+    vaddr pc; /* Tracepoing logical address. */
+    TraceCallback callback; /* Compiled callback function. */
+    TraceCondition condition; /* Tracepoint condition. */
+    QTAILQ_ENTRY(CPUTracepoint) entry;
+    struct CPUTracepoint* smp_next;
+};
+
+struct CPUEventCallback {
+    void (*func)(void*);
+    void *opaque;
+    int deleted;
+    QTAILQ_ENTRY(CPUEventCallback) entry;
 };
 
 struct KVMState;
@@ -317,6 +339,15 @@ struct CPUState {
 
     QTAILQ_HEAD(watchpoints_head, CPUWatchpoint) watchpoints;
     CPUWatchpoint *watchpoint_hit;
+
+    /* Non intrusive trace. */
+    GHashTable *tracepoints;
+    QTAILQ_HEAD(, CPUEventCallback) mode_callbacks;
+    int mode_callbacks_in_traverse;
+    uint64_t IO_ADDR, IO_VALUE;
+    int IO_SIZE, IO_ABORT;
+    SymbolTraceApiTable** symbol_trace;
+    int symbol_trace_count;
 
     void *opaque;
 

@@ -1,0 +1,9 @@
+# -*- mode: makefile -*-
+
+#util-obj-y += loader.o
+
+target-obj-y += qemu-tracepoint.o
+target-obj-y += qemu-raw-context.o
+target-obj-y += qemu-yield.o
+target-obj-y += qemu-symbol-trace.o
+target-obj-y += loader.o
