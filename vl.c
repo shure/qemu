@@ -119,6 +119,7 @@ int main(int argc, char **argv)
 #include "crypto/init.h"
 #include "sysemu/replay.h"
 #include "qapi/qmp/qerror.h"
+#include "non-intrusive/loader.h"
 
 #define MAX_VIRTIO_CONSOLES 1
 #define MAX_SCLP_CONSOLES 1
@@ -277,6 +278,22 @@ static QemuOptsList qemu_trace_opts = {
             .type = QEMU_OPT_STRING,
         },{
             .name = "file",
+            .type = QEMU_OPT_STRING,
+        },
+        { /* end of list */ }
+    },
+};
+
+static QemuOptsList qemu_non_intrusive_opts = {
+    .name = "non-intrusive",
+    .implied_opt_name = "non-intrusive",
+    .head = QTAILQ_HEAD_INITIALIZER(qemu_non_intrusive_opts.head),
+    .desc = {
+        {
+            .name = "plugin",
+            .type = QEMU_OPT_STRING,
+        },{
+            .name = "script",
             .type = QEMU_OPT_STRING,
         },
         { /* end of list */ }
@@ -2990,6 +3007,7 @@ int main(int argc, char **argv, char **envp)
     FILE *vmstate_dump_file = NULL;
     Error *main_loop_err = NULL;
     Error *err = NULL;
+    const char *nit_plugin = NULL, *nit_script = NULL;
 
     qemu_init_cpu_loop();
     qemu_mutex_lock_iothread();
@@ -3012,6 +3030,7 @@ int main(int argc, char **argv, char **envp)
     qemu_add_opts(&qemu_global_opts);
     qemu_add_opts(&qemu_mon_opts);
     qemu_add_opts(&qemu_trace_opts);
+    qemu_add_opts(&qemu_non_intrusive_opts);
     qemu_add_opts(&qemu_option_rom_opts);
     qemu_add_opts(&qemu_machine_opts);
     qemu_add_opts(&qemu_mem_opts);
@@ -3919,6 +3938,17 @@ int main(int argc, char **argv, char **envp)
                 qemu_opts_del(opts);
                 break;
             }
+            case QEMU_OPTION_non_intrusive:
+            {
+                opts = qemu_opts_parse_noisily(qemu_find_opts("non-intrusive"),
+                                               optarg, false);
+                if (!opts) {
+                    exit(1);
+                }
+                nit_plugin = qemu_opt_get(opts, "plugin");
+                nit_script = qemu_opt_get(opts, "script");
+                break;
+            }
             case QEMU_OPTION_readconfig:
                 {
                     int ret = qemu_read_config_file(optarg);
@@ -4652,6 +4682,11 @@ int main(int argc, char **argv, char **envp)
     }
 
     os_setup_post();
+
+    if (nit_plugin) {
+        printf("Non intrusive: Loading plugin %s.\n", nit_plugin);
+        nit_load_plugin(nit_plugin, 1, &nit_script);
+    }
 
     main_loop();
     replay_disable_events();

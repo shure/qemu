@@ -3682,6 +3682,11 @@ the @var{simple} tracing backend.
 @end table
 ETEXI
 
+DEF("non-intrusive", HAS_ARG, QEMU_OPTION_non_intrusive,
+"-non-intrusive [plugin=<file>][,script=<file>]\n"
+"                specify non intrusive tracing options\n",
+QEMU_ARCH_ALL)
+
 HXCOMM Internal use
 DEF("qtest", HAS_ARG, QEMU_OPTION_qtest, "", QEMU_ARCH_ALL)
 DEF("qtest-log", HAS_ARG, QEMU_OPTION_qtest_log, "", QEMU_ARCH_ALL)

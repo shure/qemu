@@ -44,6 +44,7 @@
 #include "qapi-event.h"
 #include "hw/nmi.h"
 #include "sysemu/replay.h"
+#include "non-intrusive/loader.h"
 
 #ifndef _WIN32
 #include "qemu/compatfd.h"
@@ -1147,6 +1148,8 @@ static void *qemu_tcg_cpu_thread_fn(void *arg)
 
     /* process any pending work */
     atomic_mb_set(&exit_request, 1);
+
+    nit_init_thread();
 
     while (1) {
         tcg_exec_all();
