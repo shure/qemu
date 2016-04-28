@@ -30,6 +30,7 @@
 #include "trace.h"
 #include "disas/disas.h"
 #include "tcg.h"
+#include "tcg-op.h"
 #if defined(CONFIG_USER_ONLY)
 #include "qemu.h"
 #if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
@@ -1048,6 +1049,54 @@ static void build_page_bitmap(PageDesc *p)
     }
 }
 
+static void gen_symbol_trace_instrumentation(CPUState *cs,
+                                             SymbolTraceApiTable* symbol_trace,
+                                             TranslationBlock *tb)
+{
+#ifdef TARGET_ARM
+    CPUARMState *env = cs->env_ptr;
+    if (IS_M(env) && (tb->pc > 0xffff000))
+        return;
+#endif
+    Symbol symbol = symbol_trace->lookup_symbol(symbol_trace, tb->pc);
+    if (!symbol)
+        return;
+    tb->has_symbols = 1;
+    TCGLabel *end_lab = gen_new_label();
+
+    /* Compare current_symbol. */
+    TCGv_ptr current_symbol_ptr = tcg_const_local_ptr(&symbol_trace->current_symbol);
+    TCGv_ptr current_symbol = tcg_temp_new_ptr();
+    tcg_gen_ld_ptr(current_symbol, current_symbol_ptr, 0);
+    tcg_gen_brcondi_ptr(TCG_COND_EQ, current_symbol, (unsigned long)symbol, end_lab);
+    tcg_temp_free_ptr(current_symbol);
+
+    /* Update current symbol. */
+    TCGv_ptr symbol_tcg = tcg_const_ptr(symbol);
+    tcg_gen_st_ptr(symbol_tcg, current_symbol_ptr, 0);
+    tcg_temp_free_ptr(symbol_tcg);
+    tcg_temp_free_ptr(current_symbol_ptr);
+
+    /* Update PC. */
+#ifdef HAS_CPU_GEN_SET_PC_IM
+    cpu_gen_set_pc_im(env, tb->pc);
+#endif
+
+    /* Call symbol_changed callback. */
+    TCGv_ptr t0 = tcg_const_ptr(symbol_trace);
+    TCGArg args[1];
+    args[0] = GET_TCGV_PTR(t0);
+    int sizemask = 0;
+#if TCG_TARGET_REG_BITS == 64
+    sizemask |= (1 << 2);
+#endif
+    tcg_gen_helperN(&tcg_ctx, symbol_trace->symbol_changed, 0, sizemask,
+                    TCG_CALL_DUMMY_ARG, 1, args);
+    tcg_temp_free_ptr(t0);
+
+    gen_set_label(end_lab);
+}
+
 /* Called with mmap_lock held for user mode emulation.  */
 TranslationBlock *tb_gen_code(CPUState *cpu,
                               target_ulong pc, target_ulong cs_base,
@@ -1093,6 +1142,13 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
 #endif
 
     tcg_func_start(&tcg_ctx);
+
+    if (cpu->symbol_trace) {
+      int i;
+      for (i = 0; i < cpu->symbol_trace_count; i++) {
+        gen_symbol_trace_instrumentation(cpu, cpu->symbol_trace[i], tb);
+      }
+    }
 
     gen_intermediate_code(env, tb);
 
