@@ -288,7 +288,8 @@ void cpu_get_raw_context(CPUState* cs, RawContext* context, int is_smp)
 
     /* CPUArchState is constant offset from CPU. */
     PUTS("typedef struct CPUArchState CPUArchState;");
-    PRINTF("#define ENV ((CPUArchState*)((unsigned long)CPU + %ld))", ENV_OFFSET);
+    PRINTF("#define ENV ((CPUArchState*)((unsigned long)CPU + %ld))",
+           (unsigned long)ENV_OFFSET);
 
     /* Generic host types. */
     PUTS("typedef unsigned long long uint64_t;");
@@ -373,7 +374,7 @@ void cpu_get_raw_context(CPUState* cs, RawContext* context, int is_smp)
     } else {
         for (i = 0; i <= 15; i++) {
             PRINTF("#define R%d *((uint32_t*)((unsigned long)ENV + %ld))",
-                   i, offsetof(CPUARMState, regs[i]));
+                   i, (unsigned long)offsetof(CPUARMState, regs[i]));
         }
 
         for (i = 0; i <= 31; i++) {
@@ -418,7 +419,7 @@ void cpu_get_raw_context(CPUState* cs, RawContext* context, int is_smp)
         ADD_SYMBOL("THUMB", &env->thumb);
     } else {
         PRINTF("#define THUMB *((int*)((unsigned long)ENV + %ld))",
-               offsetof(CPUARMState, thumb));
+               (unsigned long)offsetof(CPUARMState, thumb));
     }
 
     /* General API for register for registers. */
@@ -498,24 +499,24 @@ void cpu_get_raw_context(CPUState* cs, RawContext* context, int is_smp)
     } else {
         for (i = 0; i <= 30; i++) {
             PRINTF("#define X%d *((target_ulong_t*)((unsigned long)ENV + %ld))",
-                   i, offsetof(CPUARMState, xregs[i]));
+                   i, (unsigned long)offsetof(CPUARMState, xregs[i]));
             PRINTF("#define W%d *((uint32_t*)((unsigned long)ENV + %ld))",
-                   i, offsetof(CPUARMState, xregs[i]));
+                   i, (unsigned long)offsetof(CPUARMState, xregs[i]));
         }
         PRINTF("#define SP *((target_ulong_t*)((unsigned long)ENV + %ld))",
-               offsetof(CPUARMState, xregs[31]));
+               (unsigned long)offsetof(CPUARMState, xregs[31]));
         PRINTF("#define PC *((target_ulong_t*)((unsigned long)ENV + %ld))",
-               offsetof(CPUARMState, pc));
+               (unsigned long)offsetof(CPUARMState, pc));
         /* Floating point registers */
         for (i = 0; i <= 31; i++) {
             PRINTF("#define D%d *((target_float64*)((unsigned long)ENV + %ld))",
-                   i, offsetof(CPUARMState, vfp.regs[i * 2]));
+                   i, (unsigned long)offsetof(CPUARMState, vfp.regs[i * 2]));
             PRINTF("#define S%d *((target_float32*)((unsigned long)ENV + %ld))",
-                   i, offsetof(CPUARMState, vfp.regs[i * 2]));
+                   i, (unsigned long)offsetof(CPUARMState, vfp.regs[i * 2]));
             PRINTF("#define _D%d *((uint64_t*)((unsigned long)ENV + %ld))",
-                   i, offsetof(CPUARMState, vfp.regs[i * 2]));
+                   i, (unsigned long)offsetof(CPUARMState, vfp.regs[i * 2]));
             PRINTF("#define _S%d *((uint32_t*)((unsigned long)ENV + %ld))",
-                   i, offsetof(CPUARMState, vfp.regs[i * 2]));
+                   i, (unsigned long)offsetof(CPUARMState, vfp.regs[i * 2]));
         }
     }
 
@@ -540,7 +541,7 @@ void cpu_get_raw_context(CPUState* cs, RawContext* context, int is_smp)
     } else {
         for (i = 0; i < 4; i++) {
             PRINTF("#define SP_EL%d *((target_ulong_t*)((unsigned long)ENV + %ld))",
-                   i, offsetof(CPUARMState, sp_el[i]));
+                   i, (unsigned long)offsetof(CPUARMState, sp_el[i]));
         }
     }
 #endif
@@ -628,7 +629,7 @@ void cpu_get_raw_context(CPUState* cs, RawContext* context, int is_smp)
     } else {
         PRINTF("#define SMP_CORES %d", smp_cores);
         PRINTF("#define SMP_CURRENT *((const uint32_t*)((unsigned long)CPU + %ld))",
-               offsetof(CPUState, cpu_index));
+               (unsigned long)offsetof(CPUState, cpu_index));
     }
 
     /* Watchpoint parameters. */
@@ -643,13 +644,13 @@ void cpu_get_raw_context(CPUState* cs, RawContext* context, int is_smp)
         ADD_SYMBOL("IO_ABORT", &cs->IO_ABORT);
     } else {
         PRINTF("#define IO_ADDR *((target_ulong_t*)((unsigned long)CPU + %ld))",
-               offsetof(CPUState, IO_ADDR));
+               (unsigned long)offsetof(CPUState, IO_ADDR));
         PRINTF("#define IO_SIZE *((int*)((unsigned long)CPU + %ld))",
-               offsetof(CPUState, IO_SIZE));
+               (unsigned long)offsetof(CPUState, IO_SIZE));
         PRINTF("#define IO_VALUE *((uint64_t*)((unsigned long)CPU + %ld))",
-               offsetof(CPUState, IO_VALUE));
+               (unsigned long)offsetof(CPUState, IO_VALUE));
         PRINTF("#define IO_ABORT *((int*)((unsigned long)CPU + %ld))",
-               offsetof(CPUState, IO_ABORT));
+               (unsigned long)offsetof(CPUState, IO_ABORT));
     }
 
     PUTS("inline void ret_insn(void) { PC = LR; }");
